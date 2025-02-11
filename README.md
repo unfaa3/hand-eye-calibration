@@ -1,4 +1,5 @@
-# easy_handeye: automated, hardware-independent Hand-Eye Calibration for ROS1
+# easy_handeye: automated Hand-Eye Calibration for ROS1
+## (noetic, UR5, realsense camera D435)
 
 <img src="docs/img/eye_on_base_ndi_pic.png" width="345"/> <img src="docs/img/05_calibrated_rviz.png" width="475"/> 
 
@@ -11,33 +12,6 @@ implementation,
 - **publish** the result of the calibration procedure as a `tf` transform at each subsequent system startup,
 - (optional) automatically **move** a robot around a starting pose via `MoveIt!` to acquire the samples. 
 
-The intended result is to make it easy and straightforward to perform the calibration, and to keep it up-to-date throughout the system. 
-Two launch files are provided to be run, respectively to perform the calibration and check its result. 
-A further launch file can be integrated into your own launch files, to make use of the result of the calibration in a transparent way: 
-if the calibration is performed again, the updated result will be used without further action required.    
-
-You can try out this software in a simulator, through the 
-[easy_handeye_demo package](https://github.com/marcoesposito1988/easy_handeye_demo). This package also serves as an 
-example for integrating `easy_handeye` into your own launch scripts.
-
-**NOTE:** a (development) ROS2 version of this package is available [here](https://github.com/marcoesposito1988/easy_handeye2)
-
-## News
-- version 0.4.3
-    - documentation and bug fixes
-- version 0.4.2
-    - fixes for the freehand robot movement scenario
-- version 0.4.1
-    - fixed a bug that prevented loading and publishing the calibration - thanks to @lyh458!
-- version 0.4.0
-    - switched to OpenCV as a backend for the algorithm implementation 
-    - added UI element to pick the calibration algorithm (Tsai-Lenz, Park, Horaud, Andreff, Daniilidis)
-- version 0.3.1
-    - restored compatibility with Melodic and Kinetic along with Noetic
-- version 0.3.0 
-    - ROS Noetic compatibility
-    - added "evaluator" GUI to evaluate the accuracy of the calibration while running `check_calibration.launch`
- 
 
 ## Use Cases
 
@@ -51,12 +25,6 @@ If you are unfamiliar with Tsai's hand-eye calibration [1], it can be used in tw
 - **eye-on-base** to compute the static transform from a robot's base to a tracking system, e.g. the
   optical frame of a camera standing on a tripod next to the robot. In this case you can attach a marker,
   e.g. an AR marker, to the end-effector of the robot.
-  
-A relevant example of an eye-on-base calibration is finding the position of an RGBD camera with respect to a robot for object collision avoidance, e.g. [with MoveIt!](http://docs.ros.org/indigo/api/moveit_tutorials/html/doc/pr2_tutorials/planning/src/doc/perception_configuration.html): an [example launch file](docs/example_launch/ur5_kinect_calibration.launch) is provided to perform this common task between an Universal Robot and a Kinect through aruco. eye-on-hand can be used for [vision-guided tasks](https://youtu.be/nBTflbxYGkI?t=24s).
-
-The (arguably) best part is, that you do not have to care about the placement of the auxiliary marker
-(the one on the table in the eye-in-hand case, or on the robot in the eye-on-base case). The algorithm
-will "erase" that transformation out, and only return the transformation you are interested in.
 
 
 eye-on-base             |  eye-on-hand
@@ -84,93 +52,122 @@ catkin build
 
 ## Usage
 
-Two launch files, one for computing and one for publishing the calibration respectively,
-are provided to be included in your own. The default arguments should be
-overridden to specify the correct tf reference frames, and to avoid conflicts when using
-multiple calibrations at once.
+### First we need to setup Moveit! to control UR robot
 
-The suggested integration is:
-- create a new `handeye_calibrate.launch` file, which includes the robot's and tracking system's launch files, as well as 
-`easy_handeye`'s `calibrate.launch` as illustrated below in the next section "Calibration"
-- in each of your launch files where you need the result of the calibration, include `easy_handeye`'s `publish.launch` 
-as illustrated below in the section "Publishing" 
+#### install some nessary component
 
-### Calibration
-
-For both use cases, you can either launch the `calibrate.launch`
-launch file, or you can include it in another launchfile as shown below. Either
-way, the launch file will bring up a calibration script. By default, the script will interactively ask you
-to accept or discard each sample. At the end, the parameters will be saved in a yaml file.
-
-#### eye-in-hand
-
-```xml
-<launch>
-  <!-- (start your robot's MoveIt! stack, e.g. include its moveit_planning_execution.launch) -->
-  <!-- (start your tracking system's ROS driver) -->
-
-  <include file="$(find easy_handeye)/launch/calibrate.launch">
-    <arg name="eye_on_hand" value="true"/>
-
-    <!-- you can choose any identifier, as long as you use the same for publishing the calibration -->
-    <arg name="namespace_prefix" value="my_eih_calib"/>
-
-    <!-- fill in the following parameters according to your robot's published tf frames -->
-    <arg name="robot_base_frame" value="/base_link"/>
-    <arg name="robot_effector_frame" value="/ee_link"/>
-
-    <!-- fill in the following parameters according to your tracking system's published tf frames -->
-    <arg name="tracking_base_frame" value="/optical_origin"/>
-    <arg name="tracking_marker_frame" value="/optical_target"/>
-  </include>
-</launch>
+```bash
+sudo apt-get install ros-noetic-effort-controllers
+sudo apt-get install ros-noetic-rqt-controller-manager
+sudo apt-get install ros-noetic-moveit-visual-tools
+sudo apt-get install ros-noetic-rviz-visual-tools
+sudo apt-get install ros-noetic-trac-ik-kinematics-plugin
+sudo apt-get install ros-noetic-ompl
+sudo apt-get install ros-noetic-moveit-planners-ompl
+```
+#### get UR drivers
+go to your workspace and get
+```bash
+cd ~/catkin_ws/src 
+git clone https://github.com/UniversalRobots/Universal_Robots_ROS_Driver.git
+git clone -b noetic https://github.com/ros-industrial/universal_robot.git
+cd ..
+catkin_make
+source devel/setup.bash
 ```
 
-#### eye-on-base
+#### install Moveit!
 
-```xml
-<launch>
-  <!-- (start your robot's MoveIt! stack, e.g. include its moveit_planning_execution.launch) -->
-  <!-- (start your tracking system's ROS driver) -->
-
-  <include file="$(find easy_handeye)/launch/calibrate.launch">
-    <arg name="eye_on_hand" value="false"/>
-    <arg name="namespace_prefix" value="my_eob_calib"/>
-
-    <!-- fill in the following parameters according to your robot's published tf frames -->
-    <arg name="robot_base_frame" value="/base_link"/>
-    <arg name="robot_effector_frame" value="/ee_link"/>
-
-    <!-- fill in the following parameters according to your tracking system's published tf frames -->
-    <arg name="tracking_base_frame" value="/optical_origin"/>
-    <arg name="tracking_marker_frame" value="/optical_target"/>
-  </include>
-</launch>
+```bash
+sudo apt install ros-noetic-moveit
 ```
 
+#### download external controller into UR robot
+from this website (https://github.com/UniversalRobots/Universal_Robots_ROS_Driver).
+I'm using externalcontrol-1.0.3.urcap.
 
-#### Moving the robot
+#### change wired network setting
 
-A GUI for automatic robot movement is provided by the `rqt_easy_handeye` package. Please refer to [its documentation](rqt_easy_handeye/README.md).
+I'm using Ipv4, address: 192.168.1.86 (since my UR IP address is 192.168.1.60). Netmask: 255.255.255.0 (same as UR)
 
-This is optional, and can be disabled in both aforementioned cases with:
-```xml
-<launch>
-  <include file="$(find easy_handeye)/launch/calibrate.launch">
-      <!-- other arguments, as described above... -->
-      
-      <arg name="freehand_robot_movement" value="true" />
-  </include>
-</launch>
+#### check connection between UR robot and PC
+connect wire with UR robot and PC (better turn off wifi)
+```bash
+ping 192.168.1.60
 ```
 
-It will then be the user's responsibility to make the robot publish its own pose into `tf`. Please check that the robot's pose is updated correctly in 
-RViz before starting to acquire samples (the robot driver may not work while the teaching mode button is pressed, etc).
+#### running UR robot with Moveit!
+In three separate terminals run:
+```bash
+roslaunch ur_robot_driver ur5_bringup.launch robot_ip:=192.168.1.60 limited:=true
+```
+```bash
+roslaunch ur5_moveit_config moveit_planning_execution.launch
+```
+```bash
+roslaunch ur5_moveit_config moveit_rviz.launch config:=true
+```
+After opening rviz, add MotionPlanning.
 
-The same applies to the validity of the samples. For the calibration to be found reliably, the end effector must be rotated as much as possible 
-(up to 90°) about each axis, in both directions. Translating the end effector is not necessary, but can't hurt either.
+#### running external control inside UR5 robot
+On UR5 panel open an empty program, select external control. check your PC ip address not overlap UR5 external control host ip address. Then shut down the firewall in your PC with this command:
+```bash
+sudo systemctl stop firewalld
+```
+Finally, tap the play button (botton left of the UR panel) inside external control. 
 
-<img src="docs/img/02_plan_movements.png" width="345"/> <img src="docs/img/04_plan_show.png" width="495"/>
+#### Play with UR5
+Now you can move your UR5. Dragging the ball (not recommended, the joints will be messed up) or pulling the joint values in the joints, click PLAN to see the expected trajectory and EXECUTE to execute the trajectory!
+
+
+### eye-in-hand
+Now we can start hand-eye-calibration
+
+#### download necessary package
+```bash
+cd ~/catkin_ws/src
+sudo apt-get install ros-noetic-visp
+git clone -b noetic-devel https://github.com/pal-robotics/aruco_ros
+cd ..
+catkin_make
+source devel/setup.bash
+```
+```bash
+pip install transforms3d
+```
+don't use conda in this step, ROS1 doesn't recognise conda packages.
+
+#### prepare aruco marker
+we can generate aruco marker from here (https://chev.me/arucogen/), choose original aruco, and choose parameter (edit in my_calibration.launch). My aruco marker is ID:571, 100mm.
+
+#### configure realsense camera
+```bash
+# you can replace $ROS_DISTRO by noetic
+sudo apt-get install ros-$ROS_DISTRO-realsense2-camera
+```
+and you can trying to launch realsense camera to test
+```bash
+roslaunch realsense2_camera rs_camera.launch
+```
+#### hand-eye-calibration
+You can launch my calibration file directly, if you're using Ubuntu20, ROS noetic, UR5, realsense camera(D435).
+
+```bash
+roslaunch easy_handeye my_calibration.launch
+```
+There will be three user interfaces after launch.
+1. change coordinate system to base.
+2. add topic published by aruco_ros/result image.
+
+Then, the whole calibration steps like following:
+Use the panel to set the robot position, click check starting pose, if ready then open the external control in the panel to connect the robot (according to my experience, arm can be a little bit back, make aruco marker at the middle of the image, so that the success rate of the check is a little higher)
+
+ the order is like this: next pose-plan-execute-take sample-next pose cycle, during which execute will drive the robot arm to reach the new position (if the robot arm doesn't move, that means the external control is not turned on, turn it on again and you can continue). In the middle of the bad continue next pose, a few less is not a big problem. Until the progress bar reaches 100%, and then click on the compute can see that the desired results have been calculated.
+
+ click save, end of the story :D
+
+
+<img src="docs/img/04_plan_show.png" width="495"/>
 
 #### Tips for accuracy
 
